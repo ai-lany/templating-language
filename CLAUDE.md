@@ -28,18 +28,19 @@ package's `dist/index.css`.
 
 ## Architecture
 
-The model is a plain, serializable `Profile = { theme, blocks[] }` (see `src/types.ts`). It is the
-single source of truth; the text DSL and the visual editor both produce it, and the renderer
-consumes it.
+The model is a plain, serializable **tree**: `Profile = { theme, blocks[] }` where every `Block` has
+`{ type, attrs, text?, children[] }` (see `src/types.ts`). It is the single source of truth; the
+bracket-tag DSL and the visual editor both produce it, and the renderer consumes it. The grammar is
+**uniform and recursive** — there is one rule for every block, so there is no per-type parsing logic.
 
 | File | Role |
 |------|------|
-| `src/types.ts` | `Profile`, `Block`, `ProfileTheme`, `BlockType`, `BLOCK_TYPES` |
-| `src/parse.ts` | DSL text → `Profile` (tolerant; unknown types/keys ignored) |
+| `src/types.ts` | `Profile`, `Block` (attrs/text/children), `ProfileTheme`, `CONTAINER_TYPES` / `CONTENT_TYPES` |
+| `src/parse.ts` | bracket-tag DSL → `Profile`, via a tokenizer + stack tree-builder (tolerant) |
 | `src/serialize.ts` | `Profile` → DSL text (inverse of `parse`, so the editor round-trips) |
 | `src/theme.ts` | `resolveThemeVars(theme)` → CSS-variable overrides; color math adapted from the design system's `Customizer` example |
-| `src/blocks/` | one component per block type + `registry.tsx` (the `type → component` map) |
-| `src/ProfileRenderer.tsx` | applies the theme to a wrapper (inline CSS vars + `data-theme`) and renders blocks in order |
+| `src/blocks/` | one component per type + `registry.tsx` (`type → component`) + `render.tsx` (recursion) + `attrs.ts` |
+| `src/ProfileRenderer.tsx` | themes a wrapper (inline CSS vars + `data-theme`) and renders the tree via `BlockChildren` |
 | `src/index.ts` | public barrel |
 | `src/examples/` | `profiles.ts` (sample DSL) + `Editor.tsx` (live editor) + `main.tsx` |
 
@@ -51,12 +52,19 @@ consumes it.
 - Theme is applied as an **inline `style` on the profile wrapper**, not on `document`, so multiple
   profiles can render on one page and it stays SSR-safe.
 - TypeScript strict; CSS Modules; `forwardRef` on DOM-wrapping components.
-- Block props are typed `Record<string, unknown>` and read defensively via `src/blocks/props.ts`
-  (`str`, `optStr`, `list`) — the parser is lenient, so renderers must be too.
+- Block attrs are typed `Record<string, string | boolean>` and read defensively via
+  `src/blocks/attrs.ts` (`attrStr`, `attrNum`, `attrBool`, `gapVar`) — the parser is lenient, so
+  renderers must be too.
+- **One recursion point.** `render.tsx`'s `BlockView` renders a block's `children` and passes them as
+  the `children` prop, so container components just place `{children}` and never import the renderer
+  (no import cycles). Containers are listed in `CONTAINER_TYPES`; everything else is a leaf that
+  auto-closes.
 
 ### Adding a block type
 
-1. Component in `src/blocks/<Name>.tsx` composing design-system components.
+1. Component in `src/blocks/<Name>.tsx` composing design-system components (read `block.attrs` /
+   `block.text`; containers render `children`).
 2. Register it in `src/blocks/registry.tsx`.
-3. Add the type to `BlockType` / `BLOCK_TYPES` in `src/types.ts`.
-4. Handle it in `parse.ts` (`finalizeBlock`) and `serialize.ts` (`blockToLines`).
+3. Add the type to `CONTAINER_TYPES` or `CONTENT_TYPES` in `src/types.ts`.
+
+`parse.ts` / `serialize.ts` are generic and need no changes.

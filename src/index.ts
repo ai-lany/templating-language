@@ -1,8 +1,8 @@
 /**
  * @your-org/profile-templating-language
  *
- * A tiny templating language for social-media profiles. A profile is a JSON
- * document (`Profile`) of a `theme` plus ordered `blocks`; the text DSL compiles
+ * A tiny, nestable templating language for social-media profiles. A profile is a
+ * JSON tree (`Profile`) of a `theme` plus `blocks`; the bracket-tag DSL compiles
  * to it, and `ProfileRenderer` renders it with design-system components.
  *
  * Consumers must also import the design system's CSS for tokens + reset:
@@ -22,9 +22,15 @@ export type { BlockComponentProps } from './blocks/registry';
 
 export {
   BLOCK_TYPES,
+  CONTAINER_TYPES,
+  CONTENT_TYPES,
   isBlockType,
+  isContainerType,
+  type AttrValue,
   type Block,
   type BlockType,
+  type ContainerType,
+  type ContentType,
   type Profile,
   type ProfileTheme,
   type ThemeFont,

@@ -7,6 +7,11 @@ import {
   Chart,
   Note as NoteIcon,
   Minus,
+  Menu,
+  MoreHorizontal,
+  MoreVertical,
+  Grid3x3,
+  Circle,
   Frame,
   Monitor,
   Smartphone,
@@ -21,7 +26,6 @@ import {
   serializeProfile,
   ProfileRenderer,
   type Block,
-  type BlockType,
   type Profile,
   type ProfileTheme,
   type ThemeFont,
@@ -37,55 +41,100 @@ function cx(...v: (string | false | undefined)[]): string {
 
 const ICON = { width: '15', height: '15' } as const;
 
-const BLOCK_ICON: Record<BlockType, ReactNode> = {
+const BLOCK_ICON: Record<string, ReactNode> = {
+  row: <MoreHorizontal {...ICON} />,
+  col: <MoreVertical {...ICON} />,
+  grid: <Grid3x3 {...ICON} />,
+  section: <Menu {...ICON} />,
   header: <User {...ICON} />,
-  bio: <Article {...ICON} />,
-  links: <LinkIcon {...ICON} />,
-  gallery: <ImageIcon {...ICON} />,
-  stats: <Chart {...ICON} />,
+  text: <Article {...ICON} />,
+  link: <LinkIcon {...ICON} />,
+  image: <ImageIcon {...ICON} />,
+  stat: <Chart {...ICON} />,
   note: <NoteIcon {...ICON} />,
   divider: <Minus {...ICON} />,
 };
+function blockIcon(type: string): ReactNode {
+  return BLOCK_ICON[type] ?? <Circle {...ICON} />;
+}
 
 function asStr(v: unknown): string | undefined {
   return typeof v === 'string' && v.length > 0 ? v : undefined;
 }
-function asLen(v: unknown): number {
-  return Array.isArray(v) ? v.length : 0;
-}
 
-/** One-line description of a block, shown under its name in the Layers list. */
+/** One-line description of a block, shown under its name in the Layers tree. */
 function blockSummary(block: Block): string {
-  const p = block.props;
+  const a = block.attrs;
+  const n = block.children.length;
+  const count = `${n} item${n === 1 ? '' : 's'}`;
   switch (block.type) {
+    case 'row':
+    case 'col':
+      return count;
+    case 'grid':
+      return asStr(a.cols) ? `${count} · ${asStr(a.cols)} cols` : count;
+    case 'section':
+      return asStr(a.title) ?? count;
     case 'header':
-      return asStr(p.handle) ?? asStr(p.name) ?? 'Profile header';
-    case 'bio':
-      return asStr(p.title) ?? asStr(p.body)?.slice(0, 32) ?? 'Text';
-    case 'links': {
-      const n = asLen(p.items);
-      return `${n} link${n === 1 ? '' : 's'}`;
-    }
-    case 'gallery': {
-      const n = asLen(p.items);
-      return `${n} image${n === 1 ? '' : 's'}`;
-    }
-    case 'stats': {
-      const n = asLen(p.items);
-      return `${n} stat${n === 1 ? '' : 's'}`;
-    }
+      return asStr(a.handle) ?? asStr(a.name) ?? 'Profile header';
+    case 'text':
+      return block.text?.replace(/\s+/g, ' ').trim().slice(0, 36) || 'Text';
+    case 'link':
+      return block.text?.trim() || asStr(a.url) || 'Link';
+    case 'image':
+      return asStr(a.caption) ?? asStr(a.src) ?? 'Image';
+    case 'stat':
+      return [asStr(a.label), asStr(a.value)].filter(Boolean).join(' · ') || 'Stat';
     case 'note':
-      return asStr(p.color) ? `${p.color} note` : 'Sticky note';
+      return asStr(a.color) ? `${asStr(a.color)} note` : 'Note';
     case 'divider':
-      return asStr(p.label) ?? 'Divider';
+      return asStr(a.label) ?? 'Divider';
     default:
-      return block.type;
+      return count;
   }
 }
 
+/** Depth-first search for the first block of a type (for the profile name). */
+function findFirst(blocks: Block[], type: string): Block | undefined {
+  for (const block of blocks) {
+    if (block.type === type) return block;
+    const nested = findFirst(block.children, type);
+    if (nested) return nested;
+  }
+  return undefined;
+}
+
+function countBlocks(blocks: Block[]): number {
+  return blocks.reduce((sum, b) => sum + 1 + countBlocks(b.children), 0);
+}
+
 function profileName(profile: Profile): string {
-  const header = profile.blocks.find((b) => b.type === 'header');
-  return (header && asStr(header.props.name)) ?? 'Untitled profile';
+  const header = findFirst(profile.blocks, 'header');
+  return (header && asStr(header.attrs.name)) ?? 'Untitled profile';
+}
+
+/** Immutably move a block up/down within its sibling list (found anywhere in the tree). */
+function moveInTree(blocks: Block[], id: string, dir: -1 | 1): Block[] {
+  const idx = blocks.findIndex((b) => b.id === id);
+  if (idx !== -1) {
+    const target = idx + dir;
+    if (target < 0 || target >= blocks.length) return blocks;
+    const next = [...blocks];
+    const [moved] = next.splice(idx, 1);
+    next.splice(target, 0, moved!);
+    return next;
+  }
+  let changed = false;
+  const next = blocks.map((b) => {
+    if (b.children.length === 0) return b;
+    const nc = moveInTree(b.children, id, dir);
+    if (nc !== b.children) {
+      changed = true;
+      return { ...b, children: nc };
+    }
+    return b;
+  });
+  return changed ? next : blocks;
 }
 
 // ── Segmented control ─────────────────────────────────────────────────────
@@ -158,14 +207,60 @@ export function Editor() {
   function patchTheme(patch: Partial<ProfileTheme>) {
     updateProfile({ ...profile, theme: { ...theme, ...patch } });
   }
-  function moveBlock(index: number, delta: number) {
-    const target = index + delta;
-    if (target < 0 || target >= profile.blocks.length) return;
-    const blocks = [...profile.blocks];
-    const [moved] = blocks.splice(index, 1);
-    blocks.splice(target, 0, moved!);
-    updateProfile({ ...profile, blocks });
+  function moveBlock(id: string, dir: -1 | 1) {
+    updateProfile({ ...profile, blocks: moveInTree(profile.blocks, id, dir) });
   }
+
+  /** Recursive Layers tree: indented rows, reorder within siblings. */
+  const LayerRows = ({ blocks, depth }: { blocks: Block[]; depth: number }) => (
+    <>
+      {blocks.map((block, i) => (
+        <div key={block.id}>
+          <div
+            className={styles.layerRow}
+            data-active={selectedId === block.id}
+            style={{ paddingLeft: `calc(var(--space-2) + ${depth} * var(--space-4))` }}
+            onClick={() => setSelectedId(block.id)}
+          >
+            <span className={styles.layerIcon} aria-hidden="true">
+              {blockIcon(block.type)}
+            </span>
+            <span className={styles.layerName}>
+              <span className={styles.layerType}>{block.type}</span>
+              <span className={styles.layerMeta}>{blockSummary(block)}</span>
+            </span>
+            <span className={styles.layerActions}>
+              <button
+                type="button"
+                className={styles.miniBtn}
+                aria-label={`Move ${block.type} up`}
+                disabled={i === 0}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  moveBlock(block.id, -1);
+                }}
+              >
+                <ChevronUp width="15" height="15" />
+              </button>
+              <button
+                type="button"
+                className={styles.miniBtn}
+                aria-label={`Move ${block.type} down`}
+                disabled={i === blocks.length - 1}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  moveBlock(block.id, 1);
+                }}
+              >
+                <ChevronDown width="15" height="15" />
+              </button>
+            </span>
+          </div>
+          {block.children.length > 0 && <LayerRows blocks={block.children} depth={depth + 1} />}
+        </div>
+      ))}
+    </>
+  );
 
   function onAccentText(v: string) {
     setAccentText(v);
@@ -260,54 +355,13 @@ export function Editor() {
             <div className={styles.panelBody}>
               <div className={styles.sectionLabel}>
                 <span>Blocks</span>
-                <span className={styles.sectionCount}>{profile.blocks.length}</span>
+                <span className={styles.sectionCount}>{countBlocks(profile.blocks)}</span>
               </div>
               {profile.blocks.length === 0 ? (
                 <p className={styles.emptyLayers}>No blocks yet. Add some in the Code tab.</p>
               ) : (
                 <div className={styles.layerList}>
-                  {profile.blocks.map((block, i) => (
-                    <div
-                      key={block.id}
-                      className={styles.layerRow}
-                      data-active={selectedId === block.id}
-                      onClick={() => setSelectedId(block.id)}
-                    >
-                      <span className={styles.layerIcon} aria-hidden="true">
-                        {BLOCK_ICON[block.type]}
-                      </span>
-                      <span className={styles.layerName}>
-                        <span className={styles.layerType}>{block.type}</span>
-                        <span className={styles.layerMeta}>{blockSummary(block)}</span>
-                      </span>
-                      <span className={styles.layerActions}>
-                        <button
-                          type="button"
-                          className={styles.miniBtn}
-                          aria-label={`Move ${block.type} up`}
-                          disabled={i === 0}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            moveBlock(i, -1);
-                          }}
-                        >
-                          <ChevronUp width="15" height="15" />
-                        </button>
-                        <button
-                          type="button"
-                          className={styles.miniBtn}
-                          aria-label={`Move ${block.type} down`}
-                          disabled={i === profile.blocks.length - 1}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            moveBlock(i, 1);
-                          }}
-                        >
-                          <ChevronDown width="15" height="15" />
-                        </button>
-                      </span>
-                    </div>
-                  ))}
+                  <LayerRows blocks={profile.blocks} depth={0} />
                 </div>
               )}
             </div>
@@ -323,8 +377,8 @@ export function Editor() {
                 />
               </div>
               <p className={styles.codeHint}>
-                <code>@theme</code> sets styling · <code># type</code> starts a block ·{' '}
-                <code>key: value</code> and <code>- item</code> fill it in.
+                <code>[type attr=val]</code> opens a block, <code>[/type]</code> closes it. Nest
+                with <code>[row]</code> / <code>[col]</code> / <code>[grid]</code>.
               </p>
             </>
           )}

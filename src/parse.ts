@@ -1,46 +1,65 @@
 /**
- * The text DSL → `Profile`.
+ * The bracket-tag DSL → `Profile`.
  *
- * The language is deliberately tiny and forgiving — the goal is "easy to work
- * with", not a full parser. Grammar, line by line:
+ * One uniform rule for everything: an element is a tag `[type attr=val …]` with
+ * optional children and text, closed by `[/type]` (or self-closed `[type … /]`).
  *
- *   @theme accent=#ff5ecb radius=12 font=mono mode=dark   → the theme directive
- *   # header                                              → starts a block of that type
- *   name: Ada Lovelace                                    → a `key: value` field
- *   - Blog | https://example.com                          → a list item (split on `|`)
- *   Hello, welcome to my page.                            → bare lines accumulate as body text
+ *   [theme accent=#ff5ecb radius=12 font=mono mode=dark]
+ *   [header name="Ada" handle=@ada]a short tagline[/header]
+ *   [row gap=6]
+ *     [col]
+ *       [stat label=Posts value=128]
+ *       [text]Hello there.[/text]
+ *       [link url="https://…"]Blog[/link]
+ *     [/col]
+ *     [grid cols=2][image src="…"][image src="…"][/grid]
+ *   [/row]
  *
- * Unknown block types and keys are ignored; ids are assigned automatically.
+ * The parser is tolerant: unclosed tags auto-close at EOF, stray closers and
+ * unknown attrs are ignored, and leaf blocks auto-close when the next tag opens
+ * (so `[stat …][stat …]` works without explicit closers). Always returns a valid
+ * `Profile`.
  */
 
 import {
-  isBlockType,
+  isContainerType,
+  type AttrValue,
   type Block,
-  type BlockType,
   type Profile,
   type ProfileTheme,
   type ThemeFont,
   type ThemeMode,
 } from './types';
 
-interface Collected {
-  fields: Record<string, string>;
-  items: string[];
-  bodyLines: string[];
-}
+const TAG_RE = /\[([^\]]*)\]/g;
+const ATTR_RE = /([\w-]+)(?:=("[^"]*"|'[^']*'|\S+))?/g;
+const MAX_DEPTH = 32;
+const ROOT = '__root__';
 
-function splitPipe(value: string): string[] {
-  return value.split('|').map((p) => p.trim());
-}
-
-function parseTheme(rest: string): ProfileTheme {
-  const theme: ProfileTheme = {};
-  // Match key=value pairs; values run until the next whitespace.
-  const re = /(\w+)=(\S+)/g;
+function parseAttrs(str: string): Record<string, AttrValue> {
+  const attrs: Record<string, AttrValue> = {};
   let m: RegExpExecArray | null;
-  while ((m = re.exec(rest)) !== null) {
-    const key = m[1]!;
-    const value = m[2]!;
+  ATTR_RE.lastIndex = 0;
+  while ((m = ATTR_RE.exec(str)) !== null) {
+    const key = m[1]!.toLowerCase();
+    const raw = m[2];
+    if (raw === undefined) {
+      attrs[key] = true; // bare flag
+    } else if (
+      (raw.startsWith('"') && raw.endsWith('"')) ||
+      (raw.startsWith("'") && raw.endsWith("'"))
+    ) {
+      attrs[key] = raw.slice(1, -1);
+    } else {
+      attrs[key] = raw;
+    }
+  }
+  return attrs;
+}
+
+function applyTheme(theme: ProfileTheme, attrs: Record<string, AttrValue>): void {
+  for (const [key, value] of Object.entries(attrs)) {
+    if (typeof value !== 'string') continue;
     switch (key) {
       case 'accent':
       case 'background':
@@ -63,133 +82,99 @@ function parseTheme(rest: string): ProfileTheme {
         break;
     }
   }
-  return theme;
 }
 
-function finalizeBlock(type: BlockType, c: Collected, index: number): Block {
-  const body = c.bodyLines.join('\n').trim();
-  let props: Record<string, unknown> = {};
-
-  switch (type) {
-    case 'header':
-      props = {
-        name: c.fields.name,
-        handle: c.fields.handle,
-        avatar: c.fields.avatar,
-        tagline: c.fields.tagline || body || undefined,
-      };
-      break;
-    case 'bio':
-      props = { title: c.fields.title, body: body || c.fields.body };
-      break;
-    case 'links':
-      props = {
-        items: c.items.map((raw) => {
-          const [label, url] = splitPipe(raw);
-          return { label: label ?? raw, url: url ?? '#' };
-        }),
-      };
-      break;
-    case 'gallery':
-      props = {
-        items: c.items.map((raw) => {
-          const [src, caption] = splitPipe(raw);
-          return { src: src ?? raw, caption: caption || undefined };
-        }),
-      };
-      break;
-    case 'stats': {
-      const fromItems = c.items.map((raw) => {
-        const [label, value] = splitPipe(raw);
-        return { label: label ?? raw, value: value ?? '' };
-      });
-      const fromFields = Object.entries(c.fields).map(([label, value]) => ({ label, value }));
-      props = { items: [...fromFields, ...fromItems] };
-      break;
-    }
-    case 'note':
-      props = { color: c.fields.color, body: body || c.fields.body };
-      break;
-    case 'divider':
-      props = { label: c.fields.label || body || undefined };
-      break;
-    default:
-      break;
-  }
-
-  // Drop undefined values so the JSON stays tidy.
-  for (const key of Object.keys(props)) {
-    if (props[key] === undefined) delete props[key];
-  }
-
-  return { id: `${type}-${index}`, type, props };
+/** Trim indentation and outer blank lines while keeping paragraph breaks. */
+function normalizeText(run: string): string {
+  const cleaned = run
+    .split('\n')
+    .map((l) => l.trim())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return cleaned;
 }
 
-/** Parse the DSL source text into a `Profile`. Always returns a valid document. */
 export function parseProfile(source: string): Profile {
-  const lines = source.split(/\r?\n/);
+  const theme: ProfileTheme = {};
+  const root: Block = { id: ROOT, type: ROOT, attrs: {}, children: [] };
+  const stack: Block[] = [root];
+  let counter = 0;
 
-  let theme: ProfileTheme = {};
-  const blocks: Block[] = [];
+  const top = () => stack[stack.length - 1]!;
+  const canNest = (type: string) => type === ROOT || isContainerType(type);
 
-  let currentType: BlockType | null = null;
-  let collected: Collected | null = null;
-
-  const flush = () => {
-    if (currentType && collected) {
-      blocks.push(finalizeBlock(currentType, collected, blocks.length));
-    }
-    currentType = null;
-    collected = null;
+  /** Auto-close any leaf block sitting on top before a new sibling appears. */
+  const closeLeaves = () => {
+    while (stack.length > 1 && !canNest(top().type)) stack.pop();
   };
 
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
+  const addText = (run: string) => {
+    const text = normalizeText(run);
+    if (!text) return;
+    const node = top();
+    if (node.type === ROOT) return; // ignore stray top-level text
+    node.text = node.text ? `${node.text}\n${text}` : text;
+  };
 
-    if (line.startsWith('@theme')) {
-      // Merge, so multiple @theme lines are allowed.
-      theme = { ...theme, ...parseTheme(line.slice('@theme'.length)) };
-      continue;
-    }
+  const openTag = (type: string, attrs: Record<string, AttrValue>, selfClose: boolean) => {
+    closeLeaves();
+    const block: Block = { id: `b${counter++}`, type, attrs, children: [] };
+    top().children.push(block);
+    if (!selfClose && stack.length < MAX_DEPTH) stack.push(block);
+  };
 
-    if (line.startsWith('#')) {
-      flush();
-      const typeName = line.replace(/^#+/, '').trim().toLowerCase();
-      if (isBlockType(typeName)) {
-        currentType = typeName;
-        collected = { fields: {}, items: [], bodyLines: [] };
-      }
-      continue;
-    }
-
-    if (!collected) continue; // Skip content before the first block.
-
-    if (line === '') {
-      // Preserve paragraph breaks inside body text; ignore leading blanks.
-      if (collected.bodyLines.length > 0) collected.bodyLines.push('');
-      continue;
-    }
-
-    if (line.startsWith('-')) {
-      collected.items.push(line.slice(1).trim());
-      continue;
-    }
-
-    const colon = line.indexOf(':');
-    if (colon > 0) {
-      const key = line.slice(0, colon).trim().toLowerCase();
-      const value = line.slice(colon + 1).trim();
-      // A key with no spaces is treated as a field; otherwise it's prose.
-      if (/^\w+$/.test(key)) {
-        collected.fields[key] = value;
-        continue;
+  const closeTag = (type: string) => {
+    for (let i = stack.length - 1; i >= 1; i--) {
+      if (stack[i]!.type === type) {
+        stack.length = i;
+        return;
       }
     }
+    // no matching open — ignore
+  };
 
-    collected.bodyLines.push(line);
+  const handleTag = (inner: string) => {
+    const trimmed = inner.trim();
+    if (trimmed === '') return;
+
+    if (trimmed.startsWith('/')) {
+      closeTag(trimmed.slice(1).trim().toLowerCase());
+      return;
+    }
+
+    const typeMatch = /^([\w-]+)/.exec(trimmed);
+    if (!typeMatch) return;
+    const type = typeMatch[1]!.toLowerCase();
+    let rest = trimmed.slice(typeMatch[1]!.length);
+
+    // Self-closing only when the slash stands alone or follows whitespace,
+    // so it doesn't eat a value like url="https://x/".
+    let selfClose = false;
+    if (rest.trim() === '/' || /\s\/$/.test(rest)) {
+      selfClose = true;
+      rest = rest.replace(/\s*\/$/, '');
+    }
+
+    const attrs = parseAttrs(rest);
+
+    if (type === 'theme') {
+      applyTheme(theme, attrs);
+      return; // theme is lifted out of the tree, never pushed
+    }
+
+    openTag(type, attrs, selfClose);
+  };
+
+  let last = 0;
+  let m: RegExpExecArray | null;
+  TAG_RE.lastIndex = 0;
+  while ((m = TAG_RE.exec(source)) !== null) {
+    addText(source.slice(last, m.index));
+    handleTag(m[1]!);
+    last = TAG_RE.lastIndex;
   }
+  addText(source.slice(last));
 
-  flush();
-
-  return { theme, blocks };
+  return { theme, blocks: root.children };
 }

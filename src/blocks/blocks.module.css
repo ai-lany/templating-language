@@ -1,53 +1,71 @@
-/* Shared styles for profile blocks. Uses semantic design-system tokens only. */
+/* Styles for profile blocks. Uses semantic design-system tokens only.
+   Layout containers set gap/columns inline (from attrs); structure is here. */
+
+/* ---------- Containers ---------- */
+
+.row {
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+}
+.row > * {
+  min-width: 0;
+}
+
+.col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.grid {
+  display: grid;
+  min-width: 0;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.sectionTitle {
+  letter-spacing: 0.08em;
+}
+.sectionBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* ---------- Content ---------- */
 
 .header {
   display: flex;
   align-items: center;
   gap: var(--space-4);
 }
-
 .headerText {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
 }
 
-.links {
+.text {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
-}
-
-.stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-5);
-}
-
-.gallery {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: var(--space-3);
 }
 
-.galleryItem {
+.imageCard {
   overflow: hidden;
 }
-
-.galleryImage {
+.image {
   display: block;
   width: 100%;
   aspect-ratio: 1 / 1;
   object-fit: cover;
 }
-
-.galleryCaption {
+.imageCaption {
   padding: var(--space-2) var(--space-3);
-}
-
-.bioBody {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  white-space: pre-wrap;
 }

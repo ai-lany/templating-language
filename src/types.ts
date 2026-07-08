@@ -1,10 +1,13 @@
 /**
  * The profile document model.
  *
- * A profile is a plain, serializable object: a `theme` (styling) plus an ordered
- * list of `blocks` (the components shown on the page). This JSON shape is the
- * source of truth — the text DSL in `parse.ts` compiles down to it, and the
- * renderer in `ProfileRenderer.tsx` renders it with design-system components.
+ * A profile is a plain, serializable tree: a `theme` (styling) plus a list of
+ * top-level `blocks`. Every block has the same shape — a `type`, string `attrs`,
+ * optional `text`, and `children` — so the grammar is uniform and recursive.
+ * Layout containers (`row`, `col`, `grid`, `section`) nest other blocks.
+ *
+ * The bracket-tag DSL in `parse.ts` compiles to this; `serialize.ts` is its
+ * inverse; and `ProfileRenderer.tsx` renders it with design-system components.
  */
 
 export type ThemeFont = 'default' | 'serif' | 'mono';
@@ -23,40 +26,54 @@ export interface ProfileTheme {
   background?: string;
 }
 
-/** The built-in block types. Each maps to a renderer in `blocks/registry.tsx`. */
-export type BlockType =
-  | 'header'
-  | 'bio'
-  | 'links'
-  | 'gallery'
-  | 'stats'
-  | 'note'
-  | 'divider';
+/** Attribute values are strings, or `true` for bare boolean flags. */
+export type AttrValue = string | boolean;
 
+/**
+ * A node in the profile tree. Containers use `children`; content blocks read
+ * `attrs` and `text`. The parser is lenient, so every field is read defensively.
+ */
 export interface Block {
   /** Stable id, used as a React key and for reordering. Auto-assigned by the parser. */
   id: string;
-  type: BlockType;
-  /** Shape depends on `type`; see the block components for the keys each reads. */
-  props: Record<string, unknown>;
+  type: string;
+  attrs: Record<string, AttrValue>;
+  /** Inline text between the open/close tags (label, body, tagline, …). */
+  text?: string;
+  children: Block[];
 }
 
 export interface Profile {
   theme: ProfileTheme;
+  /** Top-level blocks; nesting is expressed through each block's `children`. */
   blocks: Block[];
 }
 
-/** The set of known block types, in the order shown in editor menus. */
-export const BLOCK_TYPES: BlockType[] = [
+/** Layout containers — they lay out their `children`. */
+export const CONTAINER_TYPES = ['row', 'col', 'grid', 'section'] as const;
+
+/** Leaf content blocks. */
+export const CONTENT_TYPES = [
   'header',
-  'bio',
-  'links',
-  'gallery',
-  'stats',
+  'text',
+  'link',
+  'image',
+  'stat',
   'note',
   'divider',
-];
+] as const;
 
-export function isBlockType(value: string): value is BlockType {
-  return (BLOCK_TYPES as string[]).includes(value);
+/** Every known block type, in the order shown in editor menus. */
+export const BLOCK_TYPES = [...CONTAINER_TYPES, ...CONTENT_TYPES] as const;
+
+export type ContainerType = (typeof CONTAINER_TYPES)[number];
+export type ContentType = (typeof CONTENT_TYPES)[number];
+export type BlockType = (typeof BLOCK_TYPES)[number];
+
+export function isContainerType(type: string): type is ContainerType {
+  return (CONTAINER_TYPES as readonly string[]).includes(type);
+}
+
+export function isBlockType(type: string): type is BlockType {
+  return (BLOCK_TYPES as readonly string[]).includes(type);
 }

@@ -1,16 +1,24 @@
 /**
- * `Profile` → DSL text. The inverse of `parseProfile`, so the editor can round-trip
- * a document the user has manipulated via UI controls back into editable source.
+ * `Profile` → bracket-tag DSL. The inverse of `parseProfile`, so the editor can
+ * round-trip a document it has manipulated via UI controls back into editable
+ * source.
  */
 
-import type { Block, Profile, ProfileTheme } from './types';
+import type { AttrValue, Block, Profile, ProfileTheme } from './types';
 
-function str(value: unknown): string | undefined {
-  return typeof value === 'string' && value.length > 0 ? value : undefined;
+function attrValue(value: AttrValue): string | null {
+  if (value === true) return null; // bare flag → key only
+  const s = String(value);
+  return /[\s"[\]]/.test(s) || s === '' ? `"${s.replace(/"/g, '')}"` : s;
 }
 
-function list(value: unknown): Array<Record<string, unknown>> {
-  return Array.isArray(value) ? (value as Array<Record<string, unknown>>) : [];
+function attrsToStr(attrs: Record<string, AttrValue>): string {
+  return Object.entries(attrs)
+    .map(([k, v]) => {
+      const val = attrValue(v);
+      return val === null ? k : `${k}=${val}`;
+    })
+    .join(' ');
 }
 
 function themeLine(theme: ProfileTheme): string | null {
@@ -20,63 +28,33 @@ function themeLine(theme: ProfileTheme): string | null {
   if (theme.font) parts.push(`font=${theme.font}`);
   if (theme.mode) parts.push(`mode=${theme.mode}`);
   if (theme.background) parts.push(`background=${theme.background}`);
-  return parts.length ? `@theme ${parts.join(' ')}` : null;
+  return parts.length ? `[theme ${parts.join(' ')}]` : null;
 }
 
-function field(key: string, value: unknown): string | null {
-  const s = str(value);
-  return s ? `${key}: ${s}` : null;
-}
+function serializeBlock(block: Block, depth: number, lines: string[]): void {
+  const pad = '  '.repeat(depth);
+  const attrs = attrsToStr(block.attrs);
+  const open = attrs ? `${block.type} ${attrs}` : block.type;
+  const text = block.text?.trim();
+  const hasChildren = block.children.length > 0;
 
-function blockToLines(block: Block): string[] {
-  const p = block.props;
-  const out: string[] = [`# ${block.type}`];
-  const push = (line: string | null) => {
-    if (line) out.push(line);
-  };
-
-  switch (block.type) {
-    case 'header':
-      push(field('name', p.name));
-      push(field('handle', p.handle));
-      push(field('avatar', p.avatar));
-      push(field('tagline', p.tagline));
-      break;
-    case 'bio':
-      push(field('title', p.title));
-      if (str(p.body)) out.push(String(p.body));
-      break;
-    case 'links':
-      for (const item of list(p.items)) {
-        push(`- ${str(item.label) ?? ''} | ${str(item.url) ?? '#'}`);
-      }
-      break;
-    case 'gallery':
-      for (const item of list(p.items)) {
-        const caption = str(item.caption);
-        push(`- ${str(item.src) ?? ''}${caption ? ` | ${caption}` : ''}`);
-      }
-      break;
-    case 'stats':
-      for (const item of list(p.items)) {
-        push(`- ${str(item.label) ?? ''} | ${str(item.value) ?? ''}`);
-      }
-      break;
-    case 'note':
-      push(field('color', p.color));
-      if (str(p.body)) out.push(String(p.body));
-      break;
-    case 'divider':
-      push(field('label', p.label));
-      break;
-    default:
-      break;
+  if (hasChildren) {
+    lines.push(`${pad}[${open}]`);
+    if (text) for (const l of text.split('\n')) lines.push(`${pad}  ${l}`);
+    for (const child of block.children) serializeBlock(child, depth + 1, lines);
+    lines.push(`${pad}[/${block.type}]`);
+  } else if (text && text.includes('\n')) {
+    lines.push(`${pad}[${open}]`);
+    for (const l of text.split('\n')) lines.push(`${pad}  ${l}`);
+    lines.push(`${pad}[/${block.type}]`);
+  } else if (text) {
+    lines.push(`${pad}[${open}]${text}[/${block.type}]`);
+  } else {
+    lines.push(`${pad}[${open}]`);
   }
-
-  return out;
 }
 
-/** Serialize a `Profile` back into DSL source text. */
+/** Serialize a `Profile` back into bracket-tag source text. */
 export function serializeProfile(profile: Profile): string {
   const sections: string[] = [];
 
@@ -84,7 +62,9 @@ export function serializeProfile(profile: Profile): string {
   if (theme) sections.push(theme);
 
   for (const block of profile.blocks) {
-    sections.push(blockToLines(block).join('\n'));
+    const lines: string[] = [];
+    serializeBlock(block, 0, lines);
+    sections.push(lines.join('\n'));
   }
 
   return sections.join('\n\n') + '\n';

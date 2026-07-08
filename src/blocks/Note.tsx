@@ -1,16 +1,15 @@
 import { StickyNote, type StickyColor } from '@your-org/design-system';
-import type { Block } from '../types';
-import { optStr, str } from './props';
+import type { BlockComponentProps } from './blockProps';
+import { attrStr } from './attrs';
 
 const COLORS: StickyColor[] = ['yellow', 'green', 'pink', 'blue', 'purple'];
 
-function toColor(value: unknown): StickyColor {
-  const c = optStr(value);
-  return c && (COLORS as string[]).includes(c) ? (c as StickyColor) : 'yellow';
+function toColor(value: string | undefined): StickyColor {
+  return value && (COLORS as string[]).includes(value) ? (value as StickyColor) : 'yellow';
 }
 
-export function Note({ block }: { block: Block }) {
+export function Note({ block }: BlockComponentProps) {
   return (
-    <StickyNote readOnly color={toColor(block.props.color)} value={str(block.props.body)} />
+    <StickyNote readOnly color={toColor(attrStr(block.attrs, 'color'))} value={block.text ?? ''} />
   );
 }
