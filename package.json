@@ -27,7 +27,7 @@
     "react-dom": ">=18.0.0"
   },
   "dependencies": {
-    "@your-org/design-system": "github:ai-lany/design-system#claude/profile-templating-language-so5y1v"
+    "@your-org/design-system": "github:ai-lany/design-system#master"
   },
   "devDependencies": {
     "@types/react": "^18.3.0",
