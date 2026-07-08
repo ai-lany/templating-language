@@ -31,6 +31,7 @@ import {
   type ThemeFont,
 } from '../index';
 import { SAMPLES, SAMPLE_PROFILE } from './profiles';
+import { CodeEditor } from './CodeEditor';
 import styles from './Editor.module.css';
 
 // ── Small helpers ─────────────────────────────────────────────────────────
@@ -368,12 +369,10 @@ export function Editor() {
           ) : (
             <>
               <div className={styles.codeWrap}>
-                <textarea
-                  className={styles.code}
-                  aria-label="Profile template source"
+                <CodeEditor
+                  ariaLabel="Profile template source"
                   value={source}
-                  spellCheck={false}
-                  onChange={(e) => setSource(e.target.value)}
+                  onChange={setSource}
                 />
               </div>
               <p className={styles.codeHint}>

@@ -325,23 +325,93 @@
   padding: 0 var(--space-3) var(--space-3);
   display: flex;
 }
-.code {
+
+/* Syntax-highlighted editor: a painted <pre> behind a transparent <textarea>.
+   The wrapper owns the frame; both layers fill it with identical metrics. */
+.editor {
+  position: relative;
   flex: 1;
-  resize: none;
+  min-height: 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-bg-subtle);
-  color: var(--color-fg);
+  overflow: hidden;
+
+  /* Syntax palette — tuned for the light workspace; overridden for dark below. */
+  --syn-text: var(--color-fg-muted);
+  --syn-punct: var(--color-fg-subtle);
+  --syn-tag: var(--color-accent);
+  --syn-attr: #0e7490;
+  --syn-string: #2f7d31;
+  --syn-value: #b05a12;
+}
+.editor:focus-within {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 1px;
+  border-color: transparent;
+}
+:global([data-theme='dark']) .editor {
+  --syn-attr: #6cd0e6;
+  --syn-string: #86c98d;
+  --syn-value: #e0a45e;
+}
+
+/* Both layers must render text identically for the caret to line up. */
+.code,
+.highlight {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  border: 0;
   padding: var(--space-3);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   line-height: var(--leading-normal);
   tab-size: 2;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
 }
-.code:focus-visible {
-  outline: 2px solid var(--color-border-focus);
-  outline-offset: 1px;
-  border-color: transparent;
+.highlight {
+  overflow: hidden;
+  pointer-events: none;
+  color: var(--syn-text);
+}
+.highlight code {
+  font: inherit;
+}
+.code {
+  resize: none;
+  overflow: auto;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--color-fg);
+  outline: none;
+}
+.code::selection {
+  background: var(--color-accent-subtle);
+}
+
+.synText {
+  color: var(--syn-text);
+}
+.synPunct {
+  color: var(--syn-punct);
+}
+.synTag {
+  color: var(--syn-tag);
+  font-weight: var(--weight-semibold);
+}
+.synAttr {
+  color: var(--syn-attr);
+}
+.synString {
+  color: var(--syn-string);
+}
+.synValue {
+  color: var(--syn-value);
+}
+.synHex {
+  font-weight: var(--weight-medium);
 }
 .codeHint {
   padding: var(--space-2) var(--space-4) var(--space-3);
