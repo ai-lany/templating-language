@@ -1,0 +1,17 @@
+/* The themed profile surface. Consumes semantic tokens (overridden inline by theme.ts). */
+
+.profile {
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding: var(--space-6) var(--space-5);
+  border-radius: var(--radius-lg);
+}
+
+.block {
+  /* Each block occupies a full row in the stack. */
+  min-width: 0;
+}

@@ -1,0 +1,53 @@
+/* Shared styles for profile blocks. Uses semantic design-system tokens only. */
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.headerText {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.links {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+}
+
+.gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--space-3);
+}
+
+.galleryItem {
+  overflow: hidden;
+}
+
+.galleryImage {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+}
+
+.galleryCaption {
+  padding: var(--space-2) var(--space-3);
+}
+
+.bioBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  white-space: pre-wrap;
+}

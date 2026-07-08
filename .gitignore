@@ -1,0 +1,8 @@
+node_modules
+dist
+*.tgz
+.DS_Store
+*.local
+
+# Regenerated on install; the local-verification lock references a tarball path.
+package-lock.json
