@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Guidance for Claude Code when working in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## What this is
 
@@ -17,7 +17,14 @@ npm run build:docs   # build the static editor/demo site (Vite → dist/)
 npm run typecheck    # tsc --noEmit (strict — must pass before pushing)
 ```
 
-There are no tests and no lint script. The default branch is `master`.
+There are no tests and no lint script; `typecheck` is the only gate. No lockfile is committed
+on purpose — always `npm install`, never `npm ci`. The default branch is `main`; pushing there
+triggers `.github/workflows/deploy-docs.yml`, which runs `build:docs` and publishes `dist/` to
+GitHub Pages (served under the `/templating-language/` base path set in `vite.config.ts`).
+
+`build` (tsup) and `build:docs` (Vite) are different: the former ships the library from
+`src/index.ts` with `react`/`react-dom`/`@your-org/design-system` externalized; the latter bundles
+the standalone Profile Studio site whose entry is `src/main.tsx`.
 
 ## The design system dependency
 
@@ -41,8 +48,9 @@ bracket-tag DSL and the visual editor both produce it, and the renderer consumes
 | `src/theme.ts` | `resolveThemeVars(theme)` → CSS-variable overrides; color math adapted from the design system's `Customizer` example |
 | `src/blocks/` | one component per type + `registry.tsx` (`type → component`) + `render.tsx` (recursion) + `attrs.ts` |
 | `src/ProfileRenderer.tsx` | themes a wrapper (inline CSS vars + `data-theme`) and renders the tree via `BlockChildren` |
-| `src/index.ts` | public barrel |
-| `src/examples/` | `profiles.ts` (sample DSL) + `Editor.tsx` (live editor) + `main.tsx` |
+| `src/index.ts` | public barrel; also side-effect-imports the design system's CSS |
+| `src/main.tsx` | Profile Studio app entry (mounts `Editor`); used by `dev` / `build:docs`, not shipped in the library |
+| `src/examples/` | `profiles.ts` (sample DSL) + `Editor.tsx` (live editor) + `CodeEditor.tsx` (syntax-highlighted DSL textarea) |
 
 ### Conventions (mirrors the design system)
 
