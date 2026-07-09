@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react';
 import {
   User,
   Article,
@@ -32,6 +39,7 @@ import {
 } from '../index';
 import { SAMPLES, SAMPLE_PROFILE } from './profiles';
 import { CodeEditor } from './CodeEditor';
+import { locateBlockAtOffset } from './locate';
 import styles from './Editor.module.css';
 
 // ── Small helpers ─────────────────────────────────────────────────────────
@@ -185,6 +193,12 @@ type Device = keyof typeof DEVICE_WIDTH;
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
+// Left panel (Layers / Code) resize bounds, in pixels.
+const LEFT_DEFAULT = 264;
+const LEFT_MIN = 220;
+const LEFT_MAX = 760;
+const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
+
 export function Editor() {
   const [source, setSource] = useState(SAMPLE_PROFILE);
   const [tab, setTab] = useState<'layers' | 'code'>('layers');
@@ -193,6 +207,8 @@ export function Editor() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [accentText, setAccentText] = useState('#7b61ff');
   const [copied, setCopied] = useState(false);
+  const [leftWidth, setLeftWidth] = useState(LEFT_DEFAULT);
+  const [dragging, setDragging] = useState(false);
 
   // The parsed document drives both the preview and every control value.
   const profile = useMemo<Profile>(() => parseProfile(source), [source]);
@@ -210,6 +226,24 @@ export function Editor() {
   }
   function moveBlock(id: string, dir: -1 | 1) {
     updateProfile({ ...profile, blocks: moveInTree(profile.blocks, id, dir) });
+  }
+
+  /** Drag the left panel's edge to resize it (delta-based, clamped). */
+  function startResize(e: ReactPointerEvent) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = leftWidth;
+    setDragging(true);
+    const onMove = (ev: PointerEvent) => {
+      setLeftWidth(clamp(startWidth + ev.clientX - startX, LEFT_MIN, LEFT_MAX));
+    };
+    const onUp = () => {
+      setDragging(false);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
   }
 
   /** Recursive Layers tree: indented rows, reorder within siblings. */
@@ -281,7 +315,12 @@ export function Editor() {
   const frameStyle = { '--frame-w': `${width}px` } as CSSProperties;
 
   return (
-    <div className={styles.app} data-theme={studioDark ? 'dark' : undefined}>
+    <div
+      className={styles.app}
+      data-theme={studioDark ? 'dark' : undefined}
+      data-dragging={dragging || undefined}
+      style={{ '--rail-left': `${leftWidth}px` } as CSSProperties}
+    >
       {/* ── Toolbar ─────────────────────────────────────────────── */}
       <header className={styles.toolbar}>
         <div className={styles.brand}>
@@ -340,6 +379,14 @@ export function Editor() {
       <div className={styles.body}>
         {/* Left: Layers / Code */}
         <aside className={cx(styles.panel, styles.panelLeft)}>
+          <div
+            className={styles.resizer}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize panel"
+            onPointerDown={startResize}
+            onDoubleClick={() => setLeftWidth(LEFT_DEFAULT)}
+          />
           <div className={styles.panelTabs}>
             <Segmented<'layers' | 'code'>
               value={tab}
@@ -373,6 +420,7 @@ export function Editor() {
                   ariaLabel="Profile template source"
                   value={source}
                   onChange={setSource}
+                  onCaretMove={(offset) => setSelectedId(locateBlockAtOffset(source, offset))}
                 />
               </div>
               <p className={styles.codeHint}>
@@ -393,7 +441,7 @@ export function Editor() {
               </span>
             </div>
             <div className={styles.frame} style={frameStyle}>
-              <ProfileRenderer profile={profile} />
+              <ProfileRenderer profile={profile} highlightId={selectedId} />
             </div>
           </div>
         </main>

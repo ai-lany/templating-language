@@ -15,3 +15,14 @@
   /* Each block occupies a full row in the stack. */
   min-width: 0;
 }
+
+/* Per-block wrapper: `display: contents` so it generates no box and stays
+   transparent to the parent's flex/grid layout. It only carries `data-block-id`
+   and, when highlighted, paints a blue outline on the block's own root (`> *`). */
+.blockWrap {
+  display: contents;
+}
+.blockWrap[data-hl] > * {
+  outline: 2px solid var(--profile-hl, #3b82f6);
+  outline-offset: 2px;
+}

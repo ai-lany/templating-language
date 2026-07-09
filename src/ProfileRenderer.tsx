@@ -1,11 +1,13 @@
 import { forwardRef, type HTMLAttributes } from 'react';
 import type { Profile } from './types';
 import { resolveThemeVars } from './theme';
-import { BlockChildren } from './blocks/render';
+import { BlockChildren, HighlightContext } from './blocks/render';
 import styles from './ProfileRenderer.module.css';
 
 export interface ProfileRendererProps extends HTMLAttributes<HTMLDivElement> {
   profile: Profile;
+  /** Id of the block to outline (e.g. the one under an editor caret). */
+  highlightId?: string | null;
 }
 
 /**
@@ -14,7 +16,7 @@ export interface ProfileRendererProps extends HTMLAttributes<HTMLDivElement> {
  * recursively via the registry.
  */
 export const ProfileRenderer = forwardRef<HTMLDivElement, ProfileRendererProps>(
-  function ProfileRenderer({ profile, className, style, ...rest }, ref) {
+  function ProfileRenderer({ profile, highlightId = null, className, style, ...rest }, ref) {
     const { theme, blocks } = profile;
 
     return (
@@ -25,7 +27,9 @@ export const ProfileRenderer = forwardRef<HTMLDivElement, ProfileRendererProps>(
         style={{ ...resolveThemeVars(theme), ...style }}
         {...rest}
       >
-        <BlockChildren blocks={blocks} />
+        <HighlightContext.Provider value={highlightId}>
+          <BlockChildren blocks={blocks} />
+        </HighlightContext.Provider>
       </div>
     );
   },

@@ -136,10 +136,13 @@ export function CodeEditor({
   value,
   onChange,
   ariaLabel,
+  onCaretMove,
 }: {
   value: string;
   onChange: (next: string) => void;
   ariaLabel?: string;
+  /** Fires with the caret's character offset whenever the selection changes. */
+  onCaretMove?: (offset: number) => void;
 }) {
   const highlightRef = useRef<HTMLPreElement>(null);
 
@@ -158,6 +161,7 @@ export function CodeEditor({
         value={value}
         spellCheck={false}
         onChange={(e) => onChange(e.target.value)}
+        onSelect={(e) => onCaretMove?.(e.currentTarget.selectionStart)}
         onScroll={(e) => {
           const el = highlightRef.current;
           if (el) {
