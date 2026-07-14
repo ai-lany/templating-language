@@ -12,7 +12,7 @@
   /* A cool, deliberately accent-biased workspace grey + a faint dot grid. */
   --studio-canvas: color-mix(in srgb, var(--color-bg-muted) 90%, var(--color-accent) 7%);
   --studio-dot: color-mix(in srgb, var(--color-fg) 9%, transparent);
-  --rail-left: 264px;
+  --rail-left: 320px;
   --rail-right: 288px;
 
   height: 100dvh;
@@ -264,6 +264,7 @@
 }
 
 .layerRow {
+  position: relative;
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
@@ -271,15 +272,44 @@
   padding: var(--space-2) var(--space-2);
   border-radius: var(--radius-md);
   border: 1px solid transparent;
-  cursor: default;
+  cursor: grab;
   transition: background var(--duration-fast) var(--ease-out);
 }
 .layerRow:hover {
   background: var(--color-bg-subtle);
 }
+.layerRow:active {
+  cursor: grabbing;
+}
 .layerRow[data-active='true'] {
   background: var(--color-accent-subtle);
   border-color: color-mix(in srgb, var(--color-accent) 35%, transparent);
+}
+
+/* ── Layer drag-and-drop ──────────────────────────────────────────────── */
+.layerRow[data-drag-src] {
+  opacity: 0.4;
+}
+/* Insertion line for a before/after drop, sitting in the 2px row gap. */
+.layerRow[data-drop='before']::before,
+.layerRow[data-drop='after']::after {
+  content: '';
+  position: absolute;
+  inset-inline: var(--space-1);
+  block-size: 2px;
+  border-radius: 1px;
+  background: var(--color-accent);
+}
+.layerRow[data-drop='before']::before {
+  inset-block-start: -2px;
+}
+.layerRow[data-drop='after']::after {
+  inset-block-end: -2px;
+}
+/* Nest-inside drop: ring the container row. */
+.layerRow[data-drop='inside'] {
+  background: var(--color-accent-subtle);
+  border-color: var(--color-accent);
 }
 
 .layerIcon {

@@ -3,6 +3,7 @@ import {
   useMemo,
   useState,
   type CSSProperties,
+  type DragEvent as ReactDragEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
@@ -32,6 +33,7 @@ import {
   parseProfile,
   serializeProfile,
   ProfileRenderer,
+  isContainerType,
   type Block,
   type Profile,
   type ProfileTheme,
@@ -146,6 +148,49 @@ function moveInTree(blocks: Block[], id: string, dir: -1 | 1): Block[] {
   return changed ? next : blocks;
 }
 
+/** Where a dragged layer will land relative to the row it's hovering. */
+type DropWhere = 'before' | 'after' | 'inside';
+
+/** Find a block anywhere in the tree by id. */
+function findBlock(blocks: Block[], id: string): Block | null {
+  for (const b of blocks) {
+    if (b.id === id) return b;
+    const found = findBlock(b.children, id);
+    if (found) return found;
+  }
+  return null;
+}
+
+/** True if `id` is `block` itself or nested somewhere inside it. */
+function subtreeHas(block: Block, id: string): boolean {
+  return block.id === id || block.children.some((c) => subtreeHas(c, id));
+}
+
+/** Immutably drop `id` (and its subtree) out of the tree. */
+function removeBlock(blocks: Block[], id: string): Block[] {
+  const out: Block[] = [];
+  for (const b of blocks) {
+    if (b.id === id) continue;
+    out.push(b.children.length ? { ...b, children: removeBlock(b.children, id) } : b);
+  }
+  return out;
+}
+
+/** Immutably insert `node` before/after `targetId`, or as `targetId`'s last child. */
+function insertBlock(blocks: Block[], targetId: string, node: Block, where: DropWhere): Block[] {
+  const out: Block[] = [];
+  for (const b of blocks) {
+    if (b.id === targetId) {
+      if (where === 'before') out.push(node, b);
+      else if (where === 'after') out.push(b, node);
+      else out.push({ ...b, children: [...b.children, node] }); // inside
+      continue;
+    }
+    out.push(b.children.length ? { ...b, children: insertBlock(b.children, targetId, node, where) } : b);
+  }
+  return out;
+}
+
 // ── Segmented control ─────────────────────────────────────────────────────
 
 interface SegOption<T extends string> {
@@ -194,7 +239,7 @@ type Device = keyof typeof DEVICE_WIDTH;
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
 // Left panel (Layers / Code) resize bounds, in pixels.
-const LEFT_DEFAULT = 264;
+const LEFT_DEFAULT = 320;
 const LEFT_MIN = 220;
 const LEFT_MAX = 760;
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
@@ -209,6 +254,8 @@ export function Editor() {
   const [copied, setCopied] = useState(false);
   const [leftWidth, setLeftWidth] = useState(LEFT_DEFAULT);
   const [dragging, setDragging] = useState(false);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ id: string; where: DropWhere } | null>(null);
 
   // The parsed document drives both the preview and every control value.
   const profile = useMemo<Profile>(() => parseProfile(source), [source]);
@@ -226,6 +273,49 @@ export function Editor() {
   }
   function moveBlock(id: string, dir: -1 | 1) {
     updateProfile({ ...profile, blocks: moveInTree(profile.blocks, id, dir) });
+  }
+
+  // ── Layer drag-and-drop ──────────────────────────────────────────────────
+  /** Is `targetId` a legal place to drop the block currently being dragged? */
+  function canDropOn(targetId: string): boolean {
+    if (!dragId || dragId === targetId) return false;
+    const dragged = findBlock(profile.blocks, dragId);
+    // Can't drop a block into its own subtree.
+    return !!dragged && !subtreeHas(dragged, targetId);
+  }
+
+  /** Pick before/after (leaf) or before/inside/after (container) from the cursor's Y. */
+  function onRowDragOver(e: ReactDragEvent, block: Block) {
+    if (!canDropOn(block.id)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const rect = e.currentTarget.getBoundingClientRect();
+    const y = (e.clientY - rect.top) / rect.height;
+    let where: DropWhere;
+    if (isContainerType(block.type)) {
+      where = y < 0.3 ? 'before' : y > 0.7 ? 'after' : 'inside';
+    } else {
+      where = y < 0.5 ? 'before' : 'after';
+    }
+    if (dropTarget?.id !== block.id || dropTarget.where !== where) {
+      setDropTarget({ id: block.id, where });
+    }
+  }
+
+  function onRowDrop(e: ReactDragEvent) {
+    e.preventDefault();
+    if (dragId && dropTarget && canDropOn(dropTarget.id)) {
+      const dragged = findBlock(profile.blocks, dragId)!;
+      const next = insertBlock(removeBlock(profile.blocks, dragId), dropTarget.id, dragged, dropTarget.where);
+      updateProfile({ ...profile, blocks: next });
+      setSelectedId(dragId);
+    }
+    endDrag();
+  }
+
+  function endDrag() {
+    setDragId(null);
+    setDropTarget(null);
   }
 
   /** Drag the left panel's edge to resize it (delta-based, clamped). */
@@ -246,16 +336,31 @@ export function Editor() {
     window.addEventListener('pointerup', onUp);
   }
 
-  /** Recursive Layers tree: indented rows, reorder within siblings. */
-  const LayerRows = ({ blocks, depth }: { blocks: Block[]; depth: number }) => (
-    <>
-      {blocks.map((block, i) => (
+  /**
+   * Recursive Layers tree: indented rows, reorder/reparent via drag-and-drop.
+   * A plain function (not an inline component) so its keyed DOM nodes are reused
+   * across renders — otherwise every drag setState would remount the tree and
+   * cancel the in-flight native drag.
+   */
+  const renderLayers = (blocks: Block[], depth: number): ReactNode =>
+    blocks.map((block, i) => (
         <div key={block.id}>
           <div
             className={styles.layerRow}
             data-active={selectedId === block.id}
+            data-drag-src={dragId === block.id ? '' : undefined}
+            data-drop={dropTarget?.id === block.id ? dropTarget.where : undefined}
             style={{ paddingLeft: `calc(var(--space-2) + ${depth} * var(--space-4))` }}
+            draggable
             onClick={() => setSelectedId(block.id)}
+            onDragStart={(e) => {
+              setDragId(block.id);
+              e.dataTransfer.effectAllowed = 'move';
+              e.dataTransfer.setData('text/plain', block.id);
+            }}
+            onDragOver={(e) => onRowDragOver(e, block)}
+            onDrop={onRowDrop}
+            onDragEnd={endDrag}
           >
             <span className={styles.layerIcon} aria-hidden="true">
               {blockIcon(block.type)}
@@ -291,11 +396,9 @@ export function Editor() {
               </button>
             </span>
           </div>
-          {block.children.length > 0 && <LayerRows blocks={block.children} depth={depth + 1} />}
+          {block.children.length > 0 && renderLayers(block.children, depth + 1)}
         </div>
-      ))}
-    </>
-  );
+      ));
 
   function onAccentText(v: string) {
     setAccentText(v);
@@ -409,7 +512,7 @@ export function Editor() {
                 <p className={styles.emptyLayers}>No blocks yet. Add some in the Code tab.</p>
               ) : (
                 <div className={styles.layerList}>
-                  <LayerRows blocks={profile.blocks} depth={0} />
+                  {renderLayers(profile.blocks, 0)}
                 </div>
               )}
             </div>
